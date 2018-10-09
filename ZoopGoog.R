@@ -1,6 +1,8 @@
 library(tidyverse)
 library(googleway)
 library(leaflet)
+library(httr)
+library(jsonlite)
 
 #Read in the data, saved earlier from the Zoopla.R script
 
@@ -99,3 +101,63 @@ leaflet(HA4) %>% addTiles() %>%
   addCircleMarkers(lng = ~lng, lat = ~lat,radius = ~size*20, label = ~Location)
 
 #Try adding the location along with the number_of_sales_7year
+
+############################################################################################
+############################################################################################
+
+#London Crime Data
+
+#Downloaded shape files of London boroughs from
+#https://data.london.gov.uk/dataset/statistical-gis-boundary-files-london
+#Unzipped it and stored it in data folder
+
+library(rgdal)
+
+boroughs <- readOGR(dsn = "data/statistical-gis-boundaries-london/ESRI/",
+                    layer = "London_Borough_Excluding_MHW",verbose = FALSE)
+
+#Check that it works
+plot(boroughs)
+
+#To plot on leaflet you need to change the projection
+#https://stackoverflow.com/questions/37573413/loading-spatialpolygonsdataframe-with-leaflet-for-r-doesnt-work
+boroughs_ll <- spTransform(boroughs, CRS("+init=epsg:4326"))
+
+#Now let's try to plot on a leaflet map
+leaflet(HA4) %>% addTiles() %>% 
+  addCircleMarkers(lng = ~lng, lat = ~lat,radius = ~size*20, label = ~Location) %>% 
+  addPolygons(data=boroughs_ll,weight = 3,fillColor = "orange",popup = ~NAME)
+
+#We can now look at downloading crime data
+#Trying the street level crime data from
+#https://data.police.uk/docs/method/crime-street/
+
+baseurl <- "https://data.police.uk/api/crimes-street/all-crime"
+
+#Create an empty dataframe to store the data
+crimeDF <- data.frame(matrix(nrow = 0, ncol = 10))
+colnames(crimeDF) <- c("category", "location_type", "location", "context", "outcome_status", 
+                       "persistent_id", "id", "location_subtype", "month", "Location")
+
+for(i in 1:nrow(HA4)){
+  r <- GET(baseurl, query=list(lat=HA4$lat[i],
+                               lng=HA4$lng[i],
+                               date="2018-08"))
+  
+  if(as.numeric(r[["headers"]][["content-length"]]) > 2){
+    crime <- content(r, "text")
+    crimedf <- crime %>% fromJSON()
+    crimedf$Location <- rep(HA4$Location[i], nrow(crimedf))
+    crimeDF <- bind_rows(crimeDF, crimedf)
+  }
+}
+
+
+
+
+############################################################################################
+#Google Places API
+res <- google_places(location = c(HA4$lat[1], HA4$lng[1]),
+                     keyword = "bar",
+                     radius = 5000,
+                     key = gkey)
